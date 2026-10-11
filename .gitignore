@@ -1,0 +1,54 @@
+# Secrets and local environment configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+# Python / Airflow
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+logs/
+plugins/
+config/
+# dbt generated artifacts and local credentials
+target/
+dbt_packages/
+dbt.log
+logs/
+profiles.yml
+# Downloaded source data and local pipeline working files
+data/raw/
+data/processed/
+work/
+tmp/
+temp/
+# Local database/container persistence (do not ignore SQL, schemas, or Compose files)
+clickhouse/data/
+clickhouse/logs/
+nifi/database_repository/
+nifi/flowfile_repository/
+nifi/content_repository/
+nifi/provenance_repository/
+nifi/state/
+# Local Compose overrides may contain machine-specific values or secrets
+docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
+# IDEs and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.zip
+202609-citibike-tripdata/
