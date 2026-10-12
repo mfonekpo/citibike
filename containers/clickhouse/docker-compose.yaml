@@ -7,7 +7,7 @@ services:
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-citibike}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-pipeline}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
