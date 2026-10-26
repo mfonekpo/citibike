@@ -1,0 +1,226 @@
+# Project configuration for future Airflow, NiFi and dbt implementations.
+# This file describes the pipeline; it does not run jobs or enforce checks itself.
+version: 1
+project: citibike_demand_and_availability
+owner: mfonekpo
+description: >-
+  Combine monthly completed rides with live station availability to understand
+  station usage and identify stations that may need operational attention.
+schema_contract: schema_contract.yaml
+contract_format: JSON Schema Draft 2020-12, encoded as YAML
+relative_paths_base: directory_containing_this_manifest
+
+references:
+  publisher: https://citibikenyc.com/system-data
+  feed_discovery: https://gbfs.citibikenyc.com/gbfs/2.3/gbfs.json
+  gbfs_specification: https://github.com/MobilityData/gbfs/blob/v2.3/gbfs.md
+
+time_handling:
+  storage_timezone: UTC
+  analytics_timezone: America/New_York
+  csv_timezone: America/New_York
+  csv_timezone_assumption: >-
+    The CSV timestamps have no UTC offset. Interpret them as New York local time;
+    this is a documented project assumption, not a property encoded in the CSV.
+  ambiguous_or_nonexistent_local_time: quarantine_for_review
+  gbfs_timestamp_unit: unix_seconds_utc
+
+ingestion:
+  landing_layer: bronze
+  preserve_original_payload: true
+  validation_stage: after_raw_landing_before_silver
+  schema_failure:
+    csv: quarantine_invalid_rows_and_record_reason
+    http: quarantine_entire_response_and_record_reason
+  http_failure_note: >-
+    If any record violates the selected response schema, preserve the complete
+    response in Bronze and quarantine that snapshot before Silver. Do not load a
+    partially validated snapshot as a complete view of the system.
+  malformed_json_or_missing_envelope: quarantine_response
+  metadata_storage: Keep ingestion metadata separate from source fields during schema validation.
+  metadata_fields:
+    source_id: Stable source key from the sources mapping below.
+    ingestion_id: Unique identifier for one collection or batch ingestion attempt.
+    ingested_at: UTC timestamp when this ingestion attempt received the data.
+    source_locator: Source URL or relative file path.
+    payload_sha256: SHA-256 of the original file or HTTP response bytes.
+  batch_metadata_fields:
+    release_month: Publisher release label; not a mandatory trip start month.
+    source_row_number: One-based data row number, excluding the CSV header.
+  http_metadata_fields:
+    snapshot_id: Unique per successful poll; reuse it when retrying that poll's load.
+    http_status: HTTP response status code.
+    feed_last_updated: Original response-level last_updated Unix timestamp.
+    feed_ttl: Original response-level ttl, in seconds.
+    feed_version: Original response-level version string.
+  replay_policy:
+    batch: >-
+      Track successful source-file checksums to avoid loading the same file twice.
+      Make ride_id unique in Silver across all parts and releases. Preserve and flag
+      conflicting records for the same ride_id instead of arbitrarily selecting one.
+    http: >-
+      Make (source_id, snapshot_id, entity_id) unique in Silver. Retries reuse the
+      snapshot_id; a new scheduled poll gets a new one even if values are unchanged.
+      Do not deduplicate historical snapshots on entity_id or last_reported alone.
+
+sources:
+  trip_history:
+    description: September 2026 release of completed Citi Bike rides, split into five files.
+    mode: batch
+    collector: manual download
+    schedule: manual_initial_load_then_monthly_release_check
+    release_month: "2026-09"
+    format: csv
+    archive_path: 202609-citibike-tripdata.zip
+    file_glob: 202609-citibike-tripdata/202609-citibike-tripdata_*.csv
+    expected_files:
+      - 202609-citibike-tripdata/202609-citibike-tripdata_1.csv
+      - 202609-citibike-tripdata/202609-citibike-tripdata_2.csv
+      - 202609-citibike-tripdata/202609-citibike-tripdata_3.csv
+      - 202609-citibike-tripdata/202609-citibike-tripdata_4.csv
+      - 202609-citibike-tripdata/202609-citibike-tripdata_5.csv
+    parsing:
+      encoding: utf-8-sig
+      delimiter: ","
+      quote_character: '"'
+      header: true
+      combine_parts: append_rows
+      initial_column_type: string
+      empty_string_to_null: true
+      numeric_columns: [start_lat, start_lng, end_lat, end_lng]
+      preserve_identifier_columns_as_strings: [ride_id, start_station_id, end_station_id]
+      timestamp_columns: [started_at, ended_at]
+      timestamp_pattern: YYYY-MM-DD HH:MM:SS[.fraction]
+      suggested_chunk_rows: 100000
+    schema_definition: trip_history_record
+    validation_unit: row_after_null_and_numeric_parsing
+    grain: one_completed_ride
+    entity_key: [ride_id]
+    target:
+      bronze: bronze.citibike_trips
+      silver: silver.citibike_trips
+    initial_release_observations:
+      # Audit baselines for this download only; do not apply to future releases.
+      expected_file_count: 5
+      observed_rows_by_file: [1000000, 1000000, 1000000, 1000000, 982855]
+      observed_total_rows: 4982855
+      observed_duplicate_ride_ids: 0
+      note: Some rides start on August 31; do not reject them by filename month.
+
+  system_regions:
+    description: Publisher-defined regions; these are not a complete borough classification.
+    mode: http_polling
+    collector: nifi
+    method: GET
+    url: https://gbfs.lyft.com/gbfs/2.3/bkn/en/system_regions.json
+    authentication: none
+    format: json
+    gbfs_version: "2.3"
+    poll_interval_seconds: 86400
+    schedule_note: Reference data; collect on startup and daily thereafter.
+    records_jsonpath: $.data.regions
+    schema_definition: system_regions_response
+    validation_unit: whole_http_response
+    grain: one_region_per_snapshot
+    entity_key: [region_id]
+    history_key: [snapshot_id, region_id]
+    target:
+      bronze: bronze.citibike_regions
+      silver: silver.citibike_regions
+
+  station_information:
+    description: Station metadata and the bridge between CSV station codes and GBFS IDs.
+    mode: http_polling
+    collector: nifi
+    method: GET
+    url: https://gbfs.lyft.com/gbfs/2.3/bkn/en/station_information.json
+    authentication: none
+    format: json
+    gbfs_version: "2.3"
+    poll_interval_seconds: 86400
+    schedule_note: >-
+      Collect on startup and daily thereafter. Refresh early if station_status
+      introduces an unknown station_id; preserve unmatched records meanwhile.
+    records_jsonpath: $.data.stations
+    schema_definition: station_information_response
+    validation_unit: whole_http_response
+    grain: one_station_metadata_record_per_snapshot
+    entity_key: [station_id]
+    history_key: [snapshot_id, station_id]
+    target:
+      bronze: bronze.citibike_station_information
+      silver: silver.citibike_station_information
+
+  station_status:
+    description: Current availability snapshots; individual ride events are not provided.
+    mode: http_polling
+    collector: nifi
+    method: GET
+    url: https://gbfs.lyft.com/gbfs/2.3/bkn/en/station_status.json
+    authentication: none
+    format: json
+    gbfs_version: "2.3"
+    poll_interval_seconds: 60
+    schedule_note: Honor a positive response ttl if it requires a longer interval.
+    records_jsonpath: $.data.stations
+    schema_definition: station_status_response
+    validation_unit: whole_http_response
+    grain: one_station_availability_record_per_snapshot
+    entity_key: [station_id]
+    history_key: [snapshot_id, station_id]
+    target:
+      bronze: bronze.citibike_station_status
+      silver: silver.citibike_station_status
+
+relationships:
+  - from: trip_history.start_station_id
+    to: station_information.short_name
+    purpose: Resolve the departure station to a GBFS station_id.
+  - from: trip_history.end_station_id
+    to: station_information.short_name
+    purpose: Resolve the arrival station to a GBFS station_id.
+  - from: station_status.station_id
+    to: station_information.station_id
+    purpose: Attach station names, capacity, coordinates and region to availability.
+  - from: station_information.region_id
+    to: system_regions.region_id
+    purpose: Attach the publisher's region name when a region is available.
+
+station_code_mapping:
+  preserve_original_code: true
+  exact_match_first: true
+  numeric_code_pattern: '^[0-9]+\.[0-9]+$'
+  fallback: >-
+    Only for codes matching numeric_code_pattern, remove trailing fractional zeros
+    and a resulting trailing decimal point on both sides using string operations.
+    Do not cast identifiers to floating point. Example: 5980.10 and 5980.1.
+  mapping_guards: >-
+    Require a unique candidate in the station metadata snapshot and verify the
+    station name for fallback matches. Preserve ambiguous or unmatched codes for
+    review. Do not automatically remove underscores or rewrite nonnumeric codes.
+  metadata_selection: >-
+    Keep metadata snapshots. For current analytics use the latest collected mapping.
+    Historical trips predating collection use that mapping as a documented fallback;
+    it does not prove the station's name, region or capacity at the time of the ride.
+  missing_mapping: retain_ride_and_flag_unmapped_station
+
+transformations:
+  engine: dbt
+  execution_database: clickhouse
+  orchestrator: airflow
+  planned_models:
+    - silver.citibike_trips
+    - silver.citibike_regions
+    - silver.citibike_station_information
+    - silver.citibike_station_status
+    - gold.station_hourly_usage
+    - gold.latest_station_availability
+    - gold.station_availability_history
+    - gold.station_rebalancing_priority
+  analytics_rules:
+    - Aggregate historical trips by station, weekday and hour before comparing with live status.
+    - Include zero-ride dates in weekday/hour averages and use explicit reporting date boundaries.
+    - Use the latest snapshot per station for current availability; do not join every trip to every snapshot.
+    - Do not infer completed ride counts solely from changes in available bikes.
+    - Live availability history starts when collection begins; it cannot reconstruct September availability.
+    - Rebalancing priority is an advisory comparison of usage and supply, not measured unmet demand.
