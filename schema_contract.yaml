@@ -1,0 +1,280 @@
+# JSON Schema Draft 2020-12 stored as YAML. Load with a safe YAML parser.
+# The manifest's schema_definition selects a schema under $defs.
+# CSV records must first follow the manifest's null/numeric parsing rules.
+# x-quality-rules are documented checks for future pipeline/dbt code; ordinary
+# JSON Schema validators do not execute these cross-record/business checks.
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: urn:citibike:schema-contract:1
+title: Citi Bike source schema contract
+description: >-
+  Project contract for monthly trip rows and three GBFS 2.3 responses. Includes
+  explicit accommodations for the observed Citi Bike feed; it is not a strict
+  implementation of every GBFS requirement.
+anyOf:
+  - $ref: '#/$defs/trip_history_record'
+  - $ref: '#/$defs/system_regions_response'
+  - $ref: '#/$defs/station_information_response'
+  - $ref: '#/$defs/station_status_response'
+
+$defs:
+  identifier:
+    type: string
+    minLength: 1
+    description: Preserve as text, including numeric-looking codes and UUIDs.
+  nullable_identifier:
+    type: [string, "null"]
+    minLength: 1
+  nonnegative_integer:
+    type: integer
+    minimum: 0
+  unix_seconds:
+    type: integer
+    minimum: 0
+    description: Unix seconds in UTC. Freshness is checked separately.
+  operating_flag:
+    description: The provider uses 0/1; accept GBFS booleans too. Normalize in Silver.
+    oneOf:
+      - type: boolean
+      - type: integer
+        enum: [0, 1]
+  local_timestamp:
+    type: string
+    pattern: '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$'
+    description: No offset in source. Also parse as a real calendar timestamp and apply manifest timezone rules.
+
+  trip_history_record:
+    title: One parsed monthly CSV row
+    type: object
+    additionalProperties: false
+    required:
+      - ride_id
+      - rideable_type
+      - started_at
+      - ended_at
+      - start_station_name
+      - start_station_id
+      - end_station_name
+      - end_station_id
+      - start_lat
+      - start_lng
+      - end_lat
+      - end_lng
+      - member_casual
+    properties:
+      ride_id: { $ref: '#/$defs/identifier' }
+      rideable_type:
+        type: string
+        enum: [classic_bike, electric_bike]
+        description: Current project categories; review contract if the publisher adds another.
+      started_at: { $ref: '#/$defs/local_timestamp' }
+      ended_at: { $ref: '#/$defs/local_timestamp' }
+      start_station_name: { type: [string, "null"] }
+      start_station_id: { $ref: '#/$defs/nullable_identifier' }
+      end_station_name: { type: [string, "null"] }
+      end_station_id: { $ref: '#/$defs/nullable_identifier' }
+      start_lat: { type: [number, "null"], minimum: -90, maximum: 90 }
+      start_lng: { type: [number, "null"], minimum: -180, maximum: 180 }
+      end_lat: { type: [number, "null"], minimum: -90, maximum: 90 }
+      end_lng: { type: [number, "null"], minimum: -180, maximum: 180 }
+      member_casual: { type: string, enum: [member, casual] }
+
+  gbfs_envelope:
+    type: object
+    required: [last_updated, ttl, version, data]
+    additionalProperties: true
+    properties:
+      last_updated: { $ref: '#/$defs/unix_seconds' }
+      ttl: { $ref: '#/$defs/nonnegative_integer' }
+      version: { type: string, const: "2.3" }
+      data: { type: object }
+
+  system_regions_response:
+    allOf:
+      - $ref: '#/$defs/gbfs_envelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            required: [regions]
+            additionalProperties: true
+            properties:
+              regions:
+                type: array
+                items: { $ref: '#/$defs/region_record' }
+
+  region_record:
+    type: object
+    required: [region_id, name]
+    additionalProperties: true
+    properties:
+      region_id: { $ref: '#/$defs/identifier' }
+      name: { type: string, minLength: 1 }
+
+  station_information_response:
+    allOf:
+      - $ref: '#/$defs/gbfs_envelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            required: [stations]
+            additionalProperties: true
+            properties:
+              stations:
+                type: array
+                items: { $ref: '#/$defs/station_information_record' }
+
+  station_information_record:
+    type: object
+    required: [station_id, name, lat, lon]
+    additionalProperties: true
+    properties:
+      station_id: { $ref: '#/$defs/identifier' }
+      name: { type: string, minLength: 1 }
+      short_name:
+        $ref: '#/$defs/nullable_identifier'
+        description: Bridge to trip CSV start/end station codes; flag unavailable mappings.
+      lat: { type: number, minimum: -90, maximum: 90 }
+      lon: { type: number, minimum: -180, maximum: 180 }
+      region_id: { $ref: '#/$defs/nullable_identifier' }
+      capacity:
+        type: [integer, "null"]
+        minimum: 0
+        description: Zero is allowed. Never divide by missing or zero capacity.
+      is_charging: { type: boolean }
+      is_charging_station: { type: boolean }
+      rental_uris:
+        type: object
+        additionalProperties: true
+        properties:
+          android: { type: string, format: uri }
+          ios: { type: string, format: uri }
+          web: { type: string, format: uri }
+
+  station_status_response:
+    allOf:
+      - $ref: '#/$defs/gbfs_envelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            required: [stations]
+            additionalProperties: true
+            properties:
+              stations:
+                type: array
+                items: { $ref: '#/$defs/station_status_record' }
+
+  station_status_record:
+    type: object
+    required:
+      - station_id
+      - num_bikes_available
+      - num_docks_available
+      - is_installed
+      - is_renting
+      - is_returning
+      - last_reported
+    additionalProperties: true
+    properties:
+      station_id: { $ref: '#/$defs/identifier' }
+      num_bikes_available: { $ref: '#/$defs/nonnegative_integer' }
+      num_docks_available:
+        $ref: '#/$defs/nonnegative_integer'
+        description: Required by this project for Citi Bike's docked stations.
+      num_bikes_disabled: { $ref: '#/$defs/nonnegative_integer' }
+      num_docks_disabled: { $ref: '#/$defs/nonnegative_integer' }
+      num_ebikes_available: { $ref: '#/$defs/nonnegative_integer' }
+      num_scooters_available: { $ref: '#/$defs/nonnegative_integer' }
+      num_scooters_unavailable: { $ref: '#/$defs/nonnegative_integer' }
+      is_installed: { $ref: '#/$defs/operating_flag' }
+      is_renting: { $ref: '#/$defs/operating_flag' }
+      is_returning: { $ref: '#/$defs/operating_flag' }
+      last_reported: { $ref: '#/$defs/unix_seconds' }
+      vehicle_types_available:
+        type: array
+        items:
+          type: object
+          required: [vehicle_type_id, count]
+          additionalProperties: true
+          properties:
+            vehicle_type_id: { $ref: '#/$defs/identifier' }
+            count: { $ref: '#/$defs/nonnegative_integer' }
+
+# The following checks require implementation outside JSON Schema.
+x-quality-rules:
+  - id: trip_id_unique
+    source: trip_history
+    severity: error
+    check: ride_id must be unique across all files in the Silver trip table.
+    action: Deduplicate exact replayed rides; quarantine conflicting records for review.
+  - id: valid_trip_time
+    source: trip_history
+    severity: error
+    check: Parse both timestamps as real dates; ended_at must be later than started_at.
+    action: Quarantine invalid rows. Never require started_at to match the release month.
+  - id: unusual_duration
+    source: trip_history
+    severity: warning
+    check: Flag trips shorter than 60 seconds or longer than 86400 seconds.
+    action: Retain rows with a quality flag; explicitly document their treatment in duration metrics.
+  - id: missing_trip_station
+    source: trip_history
+    severity: warning
+    check: Flag missing start_station_id or end_station_id.
+    action: Retain rides for overall totals; omit only the unresolved endpoint from station metrics.
+  - id: entity_unique_within_snapshot
+    sources: [system_regions, station_information, station_status]
+    severity: error
+    check: region_id or station_id must be unique within its own response array.
+    action: Preserve the raw response and quarantine the snapshot for duplicate entity keys.
+  - id: mapping_keys_unique
+    source: station_information
+    severity: error
+    check: Non-null short_name must map unambiguously to one station_id within a selected snapshot.
+    action: Flag ambiguous exact or normalized codes; do not multiply trip rows through the join.
+  - id: station_and_region_references
+    sources: [trip_history, station_information, station_status]
+    severity: warning
+    check: Resolve the four relationships declared in manifest.yaml against selected metadata snapshots.
+    action: Use left joins, retain missing mappings, and report coverage. Refresh reference data when needed.
+  - id: missing_optional_values
+    sources: [station_information, station_status]
+    severity: warning
+    check: Identify absent optional attributes such as region_id, short_name, capacity or disabled counts.
+    action: Store missing optional values as null in Silver; do not infer a zero count or an empty region.
+  - id: empty_feed
+    sources: [system_regions, station_information, station_status]
+    severity: warning
+    check: Flag an unexpectedly empty record array.
+    action: Preserve the response and investigate; do not interpret it as every station being empty.
+  - id: current_availability_eligibility
+    source: station_status
+    severity: warning
+    settings:
+      maximum_report_age_seconds: 300
+      allowed_future_clock_skew_seconds: 60
+    check: >-
+      Normalize 0/1 operating flags to booleans. Require is_installed=true and
+      last_reported within the configured age/skew window relative to ingested_at.
+      Pickup metrics also require is_renting=true; return metrics require
+      is_returning=true. Apply the same freshness window to feed last_updated.
+    action: >-
+      Retain stale, inactive or unknown snapshots with quality flags and exclude
+      them from current shortage/full-station rankings. Reevaluate freshness against
+      query time when serving latest availability so stopped ingestion becomes stale.
+  - id: optional_count_consistency
+    source: station_status
+    severity: warning
+    check: >-
+      When every required input is present, compare total available/disabled bikes
+      and docks with metadata capacity, and vehicle-type totals with num_bikes_available.
+    action: Flag discrepancies only; independently refreshed feeds may not agree exactly.
+  - id: schema_drift
+    sources: [trip_history, system_regions, station_information, station_status]
+    severity: warning
+    check: Detect new fields, categories, missing required fields or GBFS version changes.
+    action: >-
+      Preserve source payloads. Allow additional JSON properties while reporting
+      them; quarantine CSV column changes, unsupported categories and incompatible
+      GBFS versions until the contract is reviewed.
