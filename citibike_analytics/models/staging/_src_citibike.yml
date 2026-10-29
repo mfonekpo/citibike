@@ -4,7 +4,7 @@ sources:
   - name: citibike_raw
     schema: citibike
     tables:
-      - name: raw_citibike
+      - name: raw_citibike_tripdata
         columns:
           - name: ride_id
             data_type: string
@@ -38,3 +38,5 @@ sources:
             data_type: datetime64(3, 'utc')
 
       - name: stream_stations_status_raw
+
+      - name: stream_station_information_raw
