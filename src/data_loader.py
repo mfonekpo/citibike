@@ -10,7 +10,7 @@ from utils.logging_config import logger
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 CSV_DIR = PROJECT_DIR / "202609-citibike-tripdata"
-TABLE_NAME = "citibike.raw_citibike"
+TABLE_NAME = "citibike.raw_citibike_tripdata"
 SOURCE_COLUMNS = (
     "ride_id",
     "rideable_type",
