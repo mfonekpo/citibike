@@ -7,6 +7,8 @@ with source as (
     from {{ source('citibike_raw', 'stream_station_information_raw') }}
 ),
 
+
+
 unpacked as (
     SELECT
         source_id,
@@ -25,6 +27,8 @@ unpacked as (
             raw_payload, 'data', 'stations'
         ) as station_json
 ),
+
+
 
 cleaned as (
 
@@ -70,5 +74,6 @@ cleaned as (
 
     from unpacked
 )
+
 
 select * FROM cleaned

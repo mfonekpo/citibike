@@ -40,3 +40,5 @@ sources:
       - name: stream_stations_status_raw
 
       - name: stream_station_information_raw
+
+      - name: stream_system_regions_raw
