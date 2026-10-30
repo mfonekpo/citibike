@@ -1,5 +1,5 @@
 with source as (
-    select * from {{ source("citibike_raw", "raw_citibike") }}
+    select * from {{ source("citibike_raw", "raw_citibike_tripdata") }}
 ),
 cleaned as (
     select
