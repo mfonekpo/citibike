@@ -3,6 +3,7 @@
 
 select
     source_id,
+    snapshot_id,
     station_id,
 
     feed_updated_at,
