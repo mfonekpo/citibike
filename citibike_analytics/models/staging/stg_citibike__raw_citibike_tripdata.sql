@@ -5,8 +5,21 @@ cleaned as (
     select
         nullif(trimBoth(ride_id), '') as ride_id,
         nullif(trimBoth(rideable_type), '') as rideable_type,
-        cast(started_at as Nullable(DateTime64(3, 'UTC'))) as started_at,
-        cast(ended_at as Nullable(DateTime64(3, 'UTC'))) as ended_at,
+
+        toTimeZone(
+            toDateTime64OrNull(
+                trimBoth(started_at), 3, 'America/New_York'
+            ),
+            'UTC'
+        ) as started_at,
+
+        toTimeZone(
+            toDateTime64OrNull(
+                trimBoth(ended_at), 3, 'America/New_York'
+            ),
+            'UTC'
+        ) as ended_at,
+
         nullif(trimBoth(start_station_name), '') as start_station_name,
         nullif(trimBoth(start_station_id), '') as start_station_id,
         nullif(trimBoth(end_station_name), '') as end_station_name,
