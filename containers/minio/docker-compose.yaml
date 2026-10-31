@@ -1,0 +1,42 @@
+services:
+  minio:
+    image: quay.io/minio/aistor/minio:latest
+    container_name: minio
+    ports:
+      - 9000:9000
+      - 9001:9001 #for minio console
+    env_file:
+      - "../../.env"
+    volumes:
+      - ./minio_data:/data
+      - ./minio.license:/minio.license:ro
+
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    command: server /data --console-address ":9001"
+
+  minio_bucket-init:
+    image: quay.io/minio/aistor/mc:RELEASE.2026-02-07T19-37-38Z
+    env_file:
+      - "../../.env"
+    environment:
+      MINIO_BUCKET: "${MINIO_BUCKET:?Set MINIO_BUCKET in .env}"
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set storage http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "storage/$${MINIO_BUCKET}"
+        mc mb --ignore-existing "storage/citibike-xcom"
+        echo "Bucket ready: $${MINIO_BUCKET}"
+    restart: "no"
+
+networks:
+  default:
+    name: citibike-network
+    external: true

@@ -5,6 +5,7 @@
 !.env.*.example
 *.pem
 *.key
+/containers/minio/minio.license
 # Python / Airflow
 __pycache__/
 *.py[cod]
@@ -52,3 +53,4 @@ compose.override.yaml
 Thumbs.db
 *.zip
 202609-citibike-tripdata/
+minio_data
