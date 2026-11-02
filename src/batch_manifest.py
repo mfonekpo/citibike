@@ -145,8 +145,9 @@ def main() -> None:
         expected_files=args.expected_files,
     )
 
-    print(json.dumps(manifest, indent=2, sort_keys=True))
-
+    with open(f"batch-manifest-{manifest['release_month']}.json", "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2, sort_keys=True)
+        handle.write("\n")
 
 if __name__ == "__main__":
     main()
