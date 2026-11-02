@@ -2,9 +2,25 @@ from clickhouse_connect.driver.client import Client
 from clickhouse_connect.driver.exceptions import ClickHouseError
 from utils.dwh_connect import get_clickhouse_client
 from utils.logging_config import logger
+from uuid import uuid4
 
 
 TABLE_NAME = "citibike.raw_citibike_tripdata"
+
+
+TRIPDATA_V2_TABLE = "citibike.raw_citibike_tripdata_v2"
+
+
+def create_tripdata_work_table(client: Client) -> str:
+    work_table = f"citibike.tripdata_work_{uuid4().hex}"
+
+    logger.info("Creating work table %s", work_table)
+
+    client.command(
+        f"CREATE TABLE {work_table} AS {TRIPDATA_V2_TABLE}"
+    )
+
+    return work_table
 
 def create_tripdata_table(client: Client) -> None:
     """Create the raw database and table using a caller-owned client."""

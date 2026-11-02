@@ -30,6 +30,8 @@ cleaned as (
         toFloat64OrNull(end_lng) as end_lng,
         nullif(trimBoth(member_casual), '') as member_casual,
         nullif(trimBoth(source_locator), '') as source_locator,
+        batch_id,
+        release_month,
         cast(ingested_at as DateTime64(3, 'UTC')) as ingested_at
     from source
 )
