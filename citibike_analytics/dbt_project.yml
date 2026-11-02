@@ -1,0 +1,31 @@
+name: citibike_analytics
+
+profile: citibike_analytics
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+vars:
+  analytics_timezone: America/New_York
+  trip_reporting_start_date: '2026-09-01'
+  trip_reporting_end_date: '2026-10-01' # Exclusive local date.
+  minimum_baseline_days: 3
+  priority_reference_trips_per_hour: 20
+  max_report_age_seconds: 300
+  allowed_future_clock_skew_seconds: 60
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+
+models:
+  citibike_analytics:
+    +static_analysis: strict
+    # Materialize staging models as views, and marts as tables
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table
