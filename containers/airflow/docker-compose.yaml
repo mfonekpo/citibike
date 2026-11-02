@@ -49,8 +49,11 @@ x-airflow-common:
   # In order to add custom dependencies or upgrade provider distributions you can use your extended image.
   # Comment the image line, place your Dockerfile in the directory where you placed the docker-compose.yaml
   # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.3.2}
-  # build: .
+  # image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.3.2}
+  build:
+    context: ../..
+    dockerfile: containers/airflow/Dockerfile
+
   env_file:
     - ${ENV_FILE_PATH:-../../.env}
   environment:
@@ -66,6 +69,12 @@ x-airflow-common:
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret}
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
+    CLICKHOUSE_HOST: clickhouse
+    CLICKHOUSE_HTTP_PORT: "8123"
+    MINIO_ENDPOINT_URL: http://minio:9000
+    PYTHONPATH: /opt/citibike
+    DBT_PROJECT_DIR: /opt/citibike/citibike_analytics
+    DBT_PROFILES_DIR: /opt/citibike/citibike_analytics
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
@@ -73,7 +82,7 @@ x-airflow-common:
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
+    _PIP_ADDITIONAL_REQUIREMENTS: ""
     # The following line can be used to set a custom config file, stored in the local config folder
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
   volumes:
@@ -81,7 +90,10 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-    - ../../citibike_analytics:/opt/airflow/citibike/citibike_analytics
+    - ../../src:/opt/citibike/src:ro
+    - ../../utils:/opt/citibike/utils:ro
+    - ../../logs:/opt/citibike/logs
+    - ../../citibike_analytics:/opt/citibike/citibike_analytics
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -190,6 +202,7 @@ services:
       airflow-init:
         condition: service_completed_successfully
     networks:
+      default:
       citibike-network:
 
 
@@ -342,5 +355,6 @@ volumes:
 
 
 networks:
+  default: {}
   citibike-network:
     external: true
