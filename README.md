@@ -26,7 +26,7 @@ Medallion layers are logical groups inside the **citibike** database. Separate d
 The modeling approach is **dimensional modeling**: region and station dimensions support trip and station-observation facts. Aggregates and marts answer specific analytical questions. Dimensions hold latest-known values rather than full slowly changing dimension history.
 
 ## ERD Diagram for Bronze Layer
-![ERD Diagram for bronze layer](./images/citibike_ERD.svg)
+![ERD Diagram for bronze layer](./images/ERD_Bronze.svg)
 
 ## Sources and storage
 
