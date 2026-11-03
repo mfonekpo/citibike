@@ -1,3 +1,9 @@
+# citibike Project
+
+### Project Architectural diagram
+![ELT Diagram](./images/Citibike_ELT_Diagram.svg)
+    
+    
     MINIO --> LOAD["Airflow: load_and_publish"]
     LOAD --> WORK["ClickHouse work table"]
     WORK --> VERIFY["Verify stored counts and batch metadata"]
