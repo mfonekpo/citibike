@@ -2,6 +2,16 @@
 
 ### Project Architectural diagram
 ![ELT Diagram](./images/Citibike_ELT_Diagram.svg)
+
+### Nifi Stream Process diagrams
+![process_group_diagram](./images/Nifi_process_group.png)
+----------
+![station_status_stream_diagram](./images/station_status_stream.png)
+----------
+![system_regions](./images/stream_system_regions.png)
+
+### Airflow Orchestration
+![Apache Airflow](./images/airflow.png)
     
     
     MINIO --> LOAD["Airflow: load_and_publish"]
@@ -54,10 +64,19 @@ These counts describe this specific download, not a requirement for every future
 The 13 source columns are:
 
 
-ride_id, rideable_type, started_at, ended_at,
-start_station_name, start_station_id,
-end_station_name, end_station_id,
-start_lat, start_lng, end_lat, end_lng, member_casual
+1. ride_id, 
+2. rideable_type, 
+3. started_at, 
+4. ended_at,
+5. start_station_name, 
+6. start_station_id,
+7. end_station_name, 
+8. end_station_id,
+9. start_lat, 
+10. start_lng, 
+11. end_lat, 
+12. end_lng, 
+13. member_casual
 
 
 Identifiers and all original CSV fields initially remain strings. The loader adds source_locator, batch_id, release_month, and a warehouse-generated ingested_at.

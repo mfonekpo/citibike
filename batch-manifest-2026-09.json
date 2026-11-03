@@ -1,0 +1,115 @@
+{
+  "batch_id": "f03a2bde5fe12dd44d277cb7ee34a00d411bc896ddffd2d7a5fd527828fc47c5",
+  "file_count": 5,
+  "files": [
+    {
+      "columns": [
+        "ride_id",
+        "rideable_type",
+        "started_at",
+        "ended_at",
+        "start_station_name",
+        "start_station_id",
+        "end_station_name",
+        "end_station_id",
+        "start_lat",
+        "start_lng",
+        "end_lat",
+        "end_lng",
+        "member_casual"
+      ],
+      "filename": "202609-citibike-tripdata_1.csv",
+      "row_count": 1000000,
+      "sha256": "0124b5ecd7f06ad6681801f72cd10745f61dcb0ff13c1aa6a6beb8f7a9dffe25",
+      "size_bytes": 195316280
+    },
+    {
+      "columns": [
+        "ride_id",
+        "rideable_type",
+        "started_at",
+        "ended_at",
+        "start_station_name",
+        "start_station_id",
+        "end_station_name",
+        "end_station_id",
+        "start_lat",
+        "start_lng",
+        "end_lat",
+        "end_lng",
+        "member_casual"
+      ],
+      "filename": "202609-citibike-tripdata_2.csv",
+      "row_count": 1000000,
+      "sha256": "0dba75bc78ae5c06d61cce098d0ff4b8483df8313c25c30c6fa74dd3e3be3600",
+      "size_bytes": 194829358
+    },
+    {
+      "columns": [
+        "ride_id",
+        "rideable_type",
+        "started_at",
+        "ended_at",
+        "start_station_name",
+        "start_station_id",
+        "end_station_name",
+        "end_station_id",
+        "start_lat",
+        "start_lng",
+        "end_lat",
+        "end_lng",
+        "member_casual"
+      ],
+      "filename": "202609-citibike-tripdata_3.csv",
+      "row_count": 1000000,
+      "sha256": "ddba8698c937aa3c37fa3052d2a8a8ef3cff5eeb094fd6de3fea8310c72a87dc",
+      "size_bytes": 194957065
+    },
+    {
+      "columns": [
+        "ride_id",
+        "rideable_type",
+        "started_at",
+        "ended_at",
+        "start_station_name",
+        "start_station_id",
+        "end_station_name",
+        "end_station_id",
+        "start_lat",
+        "start_lng",
+        "end_lat",
+        "end_lng",
+        "member_casual"
+      ],
+      "filename": "202609-citibike-tripdata_4.csv",
+      "row_count": 1000000,
+      "sha256": "b14052ea8e225399fc6e0c6bed656898e4785f421d63f5572828771e33a2eda9",
+      "size_bytes": 195271896
+    },
+    {
+      "columns": [
+        "ride_id",
+        "rideable_type",
+        "started_at",
+        "ended_at",
+        "start_station_name",
+        "start_station_id",
+        "end_station_name",
+        "end_station_id",
+        "start_lat",
+        "start_lng",
+        "end_lat",
+        "end_lng",
+        "member_casual"
+      ],
+      "filename": "202609-citibike-tripdata_5.csv",
+      "row_count": 982855,
+      "sha256": "9ed92939667f49b486e8634cdd96a171a2ea8426deab10c254ca7939c917b79b",
+      "size_bytes": 191776534
+    }
+  ],
+  "manifest_version": 1,
+  "release_month": "2026-09",
+  "source_id": "citibike_nyc_trip_history",
+  "total_rows": 4982855
+}
