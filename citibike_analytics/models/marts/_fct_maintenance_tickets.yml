@@ -1,0 +1,38 @@
+version: 2
+
+models:
+  - name: fct_maintenance_tickets
+    description: >
+      Current maintenance tickets from the latest completed
+      Baserow extraction, enriched with current station details.
+
+    columns:
+      - name: baserow_row_id
+        data_tests:
+          - not_null
+          - unique
+
+      - name: ticket_id
+        data_tests:
+          - not_null
+          - unique
+
+      - name: status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - Open
+                  - In Progress
+                  - Resolved
+
+      - name: station_mapping_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - matched
+              config:
+                severity: warn

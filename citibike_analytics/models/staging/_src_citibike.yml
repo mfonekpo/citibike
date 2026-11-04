@@ -49,3 +49,5 @@ sources:
       - name: stream_system_regions_raw
 
       - name: baserow_maintenance_tickets_raw
+
+      - name: baserow_completed_extractions
