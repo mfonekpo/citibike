@@ -97,6 +97,47 @@ def create_system_regions(client: Client) -> None:
     """)
 
 
+def create_baserow_maintenance_table(client: Client) -> None:
+    client.command("""
+        CREATE TABLE IF NOT EXISTS
+            citibike.baserow_maintenance_tickets_raw
+        (
+            baserow_table_id UInt64,
+            baserow_row_id UInt64,
+            extraction_id UUID,
+            extracted_at DateTime64(3, 'UTC'),
+            loaded_at DateTime64(3, 'UTC') DEFAULT now64(3, 'UTC'),
+            raw_payload String
+        )
+        ENGINE = MergeTree
+        ORDER BY (
+            baserow_table_id,
+            baserow_row_id,
+            extracted_at,
+            extraction_id
+        )
+    """)
+
+
+def create_baserow_completed_extractions_table(client: Client) -> None:
+    client.command("""
+        CREATE TABLE IF NOT EXISTS
+            citibike.baserow_completed_extractions
+        (
+            baserow_table_id UInt64,
+            extraction_id UUID,
+            extracted_at DateTime64(3, 'UTC'),
+            expected_rows UInt64,
+            completed_at DateTime64(3, 'UTC') DEFAULT now64(3, 'UTC')
+        )
+        ENGINE = MergeTree
+        ORDER BY (
+            baserow_table_id,
+            extracted_at,
+            extraction_id
+        )
+    """)
+
 
 def main():
     try:
@@ -112,6 +153,12 @@ def main():
             
             logger.info("Creating systems_regions_table")
             create_system_regions(client)
+
+            logger.info("Creating baserow maintenance tickets table")
+            create_baserow_maintenance_table(client)
+
+            logger.info("Creating Baserow completed extractions table")
+            create_baserow_completed_extractions_table(client)
     except ClickHouseError:
         logger.exception("Failed to create tables.")
         raise
