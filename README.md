@@ -1,7 +1,7 @@
 # citibike Project
 
 ### Project Architectural diagram
-![ELT Diagram](./images/Citibike_ELT_Diagram.svg)
+![ELT Diagram](./images/citibike_ELT_diagram.svg)
 
 ### Nifi Stream Process diagrams
 ![process_group_diagram](./images/Nifi_process_group.png)

@@ -20,6 +20,7 @@ with DAG(
     tags=["citibike", "baserow", "maintenance"],
 ) as dag:
 
+
     load_baserow = BashOperator(
         task_id="load_baserow",
         bash_command=(
@@ -32,17 +33,18 @@ with DAG(
         skip_on_exit_code=None,
     )
 
+
     build_baserow_analytics = BashOperator(
         task_id="build_baserow_analytics",
         bash_command=r"""
-set -euo pipefail
+        set -euo pipefail
 
-exec /opt/citibike-venv/bin/dbt build \
-    --project-dir "$DBT_PROJECT_DIR" \
-    --profiles-dir "$DBT_PROFILES_DIR" \
-    --select "+agg_station_maintenance" \
-    --vars "baserow_maintenance_table_id: ${BASEROW_TABLE_ID:?BASEROW_TABLE_ID is required}"
-""",
+        exec /opt/citibike-venv/bin/dbt build \
+            --project-dir "$DBT_PROJECT_DIR" \
+            --profiles-dir "$DBT_PROFILES_DIR" \
+            --select "+agg_station_maintenance" \
+            --vars "baserow_maintenance_table_id: ${BASEROW_TABLE_ID:?BASEROW_TABLE_ID is required}"
+        """,
         cwd="/opt/citibike/citibike_analytics",
         append_env=True,
         do_xcom_push=False,
