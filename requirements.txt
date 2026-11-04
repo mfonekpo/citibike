@@ -3,3 +3,4 @@ clickhouse-connect==1.11.0
 pandas==3.1.0
 python-dotenv==1.2.4
 dbt==2.0.9
+requests==2.34.2
