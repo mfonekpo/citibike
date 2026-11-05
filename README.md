@@ -1,5 +1,59 @@
 # citibike Project
 
+
+### Database Schema Initialization
+
+Before executing the Citi Bike ingestion pipeline for the first time, initialize the required ClickHouse tables.
+
+The database schemas are defined in `src/createTable.py`, which creates the Bronze tables used by the batch and streaming pipelines.
+
+**1. Start the Docker services**
+
+From the repository root:
+
+```bash
+make up
+```
+
+Ensure that ClickHouse and the Airflow worker are running.
+
+**2. Initialize the database**
+
+Execute:
+
+```bash
+make init-db
+```
+
+The script creates the required tables using `CREATE TABLE IF NOT EXISTS`.
+
+This includes:
+
+- `raw_citibike_tripdata_v2`
+- `stream_stations_status_raw`
+- `stream_station_information_raw`
+- `stream_system_regions_raw`
+- `baserow_maintenance_tickets_raw`
+- `baserow_completed_extractions`
+
+**3. Verify the schema**
+
+Connect to ClickHouse and execute:
+
+```sql
+SHOW CREATE TABLE citibike.raw_citibike_tripdata_v2;
+```
+
+Confirm that the table contains the expected columns, storage engine, partitioning, and sorting key.
+
+**4. Start the ingestion workflows**
+
+Once the database tables have been initialized successfully, the Airflow batch ingestion DAG can be triggered.
+
+Apache NiFi independently handles the streaming ingestion pipeline.
+
+**Note:** Database initialization is required when setting up a fresh ClickHouse environment. The script can be rerun without recreating existing tables, but `CREATE TABLE IF NOT EXISTS` does not apply schema changes to tables that already exist.
+
 ### Project Architectural diagram
 ![ELT Diagram](./images/citibike_ELT_diagram.svg)
 
