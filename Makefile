@@ -1,4 +1,4 @@
-.PHONY: up down nifi-up nifi-down airflow-up airflow-down minio-up minio-down
+.PHONY: up down nifi-up nifi-down airflow-up airflow-down minio-up minio-down init-db
 
 up:
 	docker compose --env-file .env -f "containers/clickhouse/docker-compose.yaml" up --build -d
@@ -29,3 +29,9 @@ minio-up:
 
 minio-down:
 	docker compose --env-file .env -f "containers/minio/docker-compose.yaml" down
+
+init-db:
+	docker compose --env-file .env \
+		-f containers/airflow/docker-compose.yaml \
+		exec airflow-worker \
+		/opt/citibike-venv/bin/python -m src.createTable
