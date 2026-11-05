@@ -15,7 +15,13 @@ with baseline as (
         toNullable(reporting_start_date) as baseline_start_date,
         toNullable(reporting_end_date_exclusive) as baseline_end_date_exclusive,
         toNullable(station_in_reporting_data) as station_in_reporting_data
+
     from {{ ref('int_station_hourly_demand_baseline') }}
+
+    where reporting_start_date = (
+    select max(reporting_start_date)
+    from {{ ref('int_station_hourly_demand_baseline') }}
+    )
 ),
 
 recent_availability as (

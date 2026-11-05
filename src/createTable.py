@@ -26,7 +26,7 @@ def create_tripdata_table(client: Client) -> None:
     """Create the raw database and table using a caller-owned client."""
     client.command("CREATE DATABASE IF NOT EXISTS citibike")
     client.command(f"""
-        CREATE TABLE IF NOT EXISTS {TABLE_NAME}
+        CREATE TABLE IF NOT EXISTS {TRIPDATA_V2_TABLE}
         (
             ride_id String,
             rideable_type String,
@@ -42,10 +42,14 @@ def create_tripdata_table(client: Client) -> None:
             end_lng String,
             member_casual String,
             source_locator String,
+            batch_id String,
+            release_month Date,
             ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)
         )
         ENGINE = MergeTree
+        PARTITION BY toYYYYMM(release_month)
         ORDER BY ride_id
+        SETTINGS index_granularity = 8192
     """)
 
 

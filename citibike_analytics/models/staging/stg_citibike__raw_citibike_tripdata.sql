@@ -32,8 +32,19 @@ cleaned as (
         nullif(trimBoth(source_locator), '') as source_locator,
         batch_id,
         release_month,
-        cast(ingested_at as DateTime64(3, 'UTC')) as ingested_at
-    from source
+        cast(ingested_at as DateTime64(3, 'UTC')) as ingested_at,
+
+        -- Preserve original source values for validation and quarantine.
+
+        src.started_at AS raw_started_at,
+        src.ended_at AS raw_ended_at,
+
+        src.start_lat AS raw_start_lat,
+        src.start_lng AS raw_start_lng,
+
+        src.end_lat AS raw_end_lat,
+        src.end_lng AS raw_end_lng
+    from source as src
 )
 
 select * from cleaned

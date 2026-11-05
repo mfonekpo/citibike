@@ -18,8 +18,8 @@ with trips as (
 
         source_locator,
         ingested_at
-    FROM {{ ref("stg_citibike__raw_citibike_tripdata") }}
-    where ended_at > started_at
+    FROM {{ ref("int_trip_validation") }}
+    where validation_status = 'VALID'
 ),
 
 
