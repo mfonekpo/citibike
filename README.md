@@ -397,3 +397,7 @@ See [Analytics README](./citibike_analytics/README.md) for model lineage, test c
 | `manifests/batch-manifest-YYYY-MM.json` in MinIO | Execution-time release description: object names, counts, sizes, SHA-256 checksums, and deterministic `batch_id`. |
 
 The batch fingerprint supports reproducibility and change detection; it is **not a cryptographic signature of publisher identity**.
+
+---------------
+# Citibike Operational Dahsboard using Apache Superset
+![citibike Ops dashboard](./images/Citibike_operations_dashboard.png)
