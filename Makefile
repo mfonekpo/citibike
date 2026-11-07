@@ -1,5 +1,5 @@
 .PHONY: up down nifi-up nifi-down airflow-up airflow-down minio-up minio-down init-db\
-		superset-up superset-down superset-logs
+		superset-up superset-down superset-logs clickhouse-up clickhouse-down
 up:
 	docker compose --env-file .env -f "containers/clickhouse/docker-compose.yaml" up --build -d
 	docker compose --env-file .env -f "containers/nifi/docker-compose.yaml" up --build -d
@@ -15,7 +15,7 @@ down:
 	docker compose --env-file .env -f "containers/superset/docker-compose.yaml" down
 
 nifi-up:
-	docker compose --env-file .env -f "containers/nifi/docker-compose.yaml" up --build
+	docker compose --env-file .env -f "containers/nifi/docker-compose.yaml" up -d
 
 nifi-down:
 	docker compose --env-file .env -f "containers/nifi/docker-compose.yaml" down
@@ -46,3 +46,9 @@ superset-down:
 
 superset-logs:
 	docker compose --env-file .env -f "containers/superset/docker-compose.yaml" logs -f
+
+clickhouse-up:
+	docker compose --env-file .env -f "containers/clickhouse/docker-compose.yaml" up -d
+
+clickhouse-down:
+	docker compose --env-file .env -f "containers/clickhouse/docker-compose.yaml" down
