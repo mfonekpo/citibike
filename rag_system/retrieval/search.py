@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from typing import Any
 import ollama
 from qdrant_client import QdrantClient
 
@@ -36,51 +37,53 @@ def retrieve_points(question: str, top_k: int = 3) -> list[dict[str, Any]]:
   ]
 
 
-def ask_citibike_rag(question: str) -> None:
-  hits = retrieve_points(question)
+def ask_citibike_rag(question: str) -> dict[str, Any]:
+    hits = retrieve_points(question)
 
-  if not hits:
-    print("No relevant Citibike data found.")
-    return
+    if not hits:
+        return {
+            "question": question,
+            "understood_query": question,
+            "answer": (
+                "I don't have enough warehouse data to answer that."
+            ),
+            "sources": [],
+        }
 
-  context = "\n\n---\n\n".join(hit["text"] for hit in hits)
-
-  response = ollama.chat(
-      model=CHAT_MODEL,
-      messages=[
-          {
-              "role": "system",
-              "content": (
-                  "You are a precise Citibike data analyst. Answer the"
-                  " question using ONLY the provided context. Copy exact"
-                  " numbers from the context. If the answer is missing, say"
-                  " 'I don't have enough data to answer that.'"
-              ),
-          },
-          {
-              "role": "user",
-              "content": f"Context:\n{context}\n\nQuestion: {question}",
-          },
-      ],
-      options={
-          "temperature": 0.0  # Keeps qwen2.5:1.5b deterministic and factual
-      },
-  )
-
-  print(f"Answer:\n{response.message.content}\n")
-  print("Sources:")
-  for hit in hits:
-    print(
-        f"- Table: {hit['source_table']} | ID: {hit['extraction_id']} (Score:"
-        f" {hit['score']:.4f})"
+    context = "\n\n---\n\n".join(
+        hit["text"] for hit in hits
     )
 
+    response = ollama.chat(
+        model=CHAT_MODEL,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Answer using only the provided warehouse context. "
+                    "If the answer is missing, say you do not have "
+                    "enough warehouse data. "
+                    "Copy exact numbers from the context."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Context:\n{context}\n\n"
+                    f"Question: {question}"
+                ),
+            },
+        ],
+        options={"temperature": 0.0},
+    )
 
-def main():
-  question = "Which month had the most Citibike trips, and how many were there?"
-  print(f"Question: {question}\n")
-  ask_citibike_rag(question)
+    answer = (response.message.content or "").strip()
 
-
-if __name__ == "__main__":
-  main()
+    return {
+        "question": question,
+        "understood_query": question,
+        "answer": answer or (
+            "I don't have enough warehouse data to answer that."
+        ),
+        "sources": hits,
+    }
