@@ -1,5 +1,6 @@
 .PHONY: up down nifi-up nifi-down airflow-up airflow-down minio-up minio-down init-db\
-		superset-up superset-down superset-logs clickhouse-up clickhouse-down
+		superset-up superset-down superset-logs clickhouse-up clickhouse-down\
+		ollama-up ollama-down ollama-init ollama-setup
 up:
 	docker compose --env-file .env -f "containers/clickhouse/docker-compose.yaml" up --build -d
 	docker compose --env-file .env -f "containers/nifi/docker-compose.yaml" up --build -d
@@ -52,3 +53,14 @@ clickhouse-up:
 
 clickhouse-down:
 	docker compose --env-file .env -f "containers/clickhouse/docker-compose.yaml" down
+
+ollama-up:
+	docker compose -f "rag_system/docker-compose.yaml" up --build -d
+
+ollama-down:
+	docker compose -f "rag_system/docker-compose.yaml" down
+
+ollama-init:
+	docker compose -f "rag_system/docker-compose.yaml" run --rm ollama-model-init
+
+ollama-setup: ollama-up ollama-init
