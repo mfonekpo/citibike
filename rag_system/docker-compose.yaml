@@ -1,0 +1,74 @@
+name: citibike-rag
+
+services:
+
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+
+  #   ports:
+  #     - "127.0.0.1:6333:6333"
+
+  #   volumes:
+  #     - qdrant_storage:/qdrant/storage
+
+  #   networks:
+  #     - citibike-network
+
+  #   restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+
+    ports:
+      - "127.0.0.1:11434:11434"
+
+    volumes:
+      - ollama_models:/root/.ollama
+
+    networks:
+      - citibike-network
+
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+    restart: unless-stopped
+
+
+  ollama-model-init:
+    image: ollama/ollama:latest
+
+    profiles:
+      - setup
+
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+
+    entrypoint:
+      - /bin/sh
+      - -c
+
+    command:
+      - |
+        ollama pull qwen2.5:1.5b &&
+        ollama pull nomic-embed-text
+
+    networks:
+      - citibike-network
+
+    restart: "no"
+
+volumes:
+  qdrant_storage:
+  ollama_models:
+
+networks:
+  citibike-network:
+    external: true

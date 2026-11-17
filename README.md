@@ -1,10 +1,12 @@
 # Citi Bike Data Platform
 
-A local, containerized **ELT data engineering project** combining historical Citi Bike trip files, near-real-time GBFS station feeds, and operational maintenance tickets from Baserow. The platform uses **MinIO, Apache Airflow, Apache NiFi, ClickHouse, Python, and dbt** to ingest, validate, model, and serve analytical data.
+A local, containerized **ELT data engineering project** combining historical Citi Bike trip files, near-real-time GBFS station feeds, and operational maintenance tickets from Baserow. The platform uses **MinIO, Apache Airflow, Apache NiFi, ClickHouse, Python, and dbt** to ingest, validate, model, and serve analytical data. A **FastAPI RAG backend** uses **Ollama and Qdrant** to answer monthly trip-count questions from the modeled warehouse data.
 
 The pipeline supports month-selectable historical backfills, repeatable monthly publication, row-level trip validation and quarantine, current station availability, rebalancing signals, and maintenance workload metrics. A dashboard is a planned consumer of the curated models; it is not included in this repository.
 
 > **Implementation status (November 2026):** April 2026 and September 2026 trip releases have been loaded and successfully reprocessed without duplicating Bronze rows. Multi-month demand baselines and the row-level trip validation/quarantine path have been built and checked. Efficient cross-row duplicate resolution, automated quarantine reconciliation tests, synthetic rejection tests, and full SCD Type 2 as-of trip joins remain follow-up work; see [Known limitations](#known-limitations-and-next-steps).
+
+The RAG implementation includes structured warehouse extraction, embedding/upsert verification, guarded question answering, twice-daily refresh scheduling, and on-demand refresh job tracking. Its current knowledge scope is **monthly trip counts from `citibike.fct_trips`**; it does not expose every warehouse model or provide a custom frontend.
 
 ## Contents
 
@@ -15,6 +17,7 @@ The pipeline supports month-selectable historical backfills, repeatable monthly 
 - [Monthly trip ingestion and backfills](#monthly-trip-ingestion-and-backfills)
 - [Baserow maintenance-ticket integration](#baserow-maintenance-ticket-integration)
 - [Transformation and quarantine](#transformation-and-quarantine)
+- [RAG backend: ClickHouse, Ollama, Qdrant, and FastAPI](#rag-backend-clickhouse-ollama-qdrant-and-fastapi)
 - [Operational checks](#operational-checks)
 - [Known limitations and next steps](#known-limitations-and-next-steps)
 
@@ -36,6 +39,11 @@ flowchart LR
     DBT --> FACTS[Facts, dimensions, aggregates, marts]
     DBT --> QUARANTINE[Rejected-trip quarantine]
     FACTS --> DASH[Planned dashboard]
+    FACTS --> SUMMARY[Monthly trip-count extraction]
+    SUMMARY --> EMBED[Ollama: embeddings]
+    EMBED --> QDRANT[Qdrant Cloud: summary point]
+    QDRANT --> API[FastAPI RAG backend]
+    CHAT[Ollama: question interpretation + answer wording] <--> API
 ```
 
 **ELT:** source records are landed in ClickHouse before SQL cleansing and business transformations. File integrity checks take place before batch publication. Bronze, Silver, and Gold are **logical layers in the `citibike` database**, not three separate ClickHouse databases.
@@ -138,6 +146,17 @@ citibike/
 │   │   ├── intermediate/
 │   │   └── marts/
 │   └── tests/
+├── rag_system/
+│   ├── docker-compose.yaml       # Ollama and one-off model initialization
+│   ├── api/
+│   │   └── main.py               # API, scheduler, and refresh job tracking
+│   ├── ingestion/
+│   │   ├── monthly_tripcount.py  # ClickHouse extraction and document builder
+│   │   └── embed.py              # Embedding, Qdrant upsert, and verification
+│   ├── retrieval/
+│   │   └── search.py             # Intent, retrieval, and grounded answers
+│   └── quardrails/
+│       └── validation.py         # Strict evidence validation and calculations
 └── tests/
 ```
 
@@ -156,6 +175,9 @@ Some models described below (notably the new trip-validation and quarantine mode
 | PostgreSQL / Redis | Airflow metadata / Celery broker |
 | dbt CLI | `2.0.9` in `requirements.txt` |
 | Python | 3.12 container runtime |
+| RAG backend | FastAPI/Uvicorn on the host; APScheduler 3.x and Pydantic 2.x |
+| Ollama | `ollama/ollama:latest`; `qwen2.5:1.5b` and `nomic-embed-text` |
+| Qdrant | Configured cloud endpoint; the local Compose service is commented out |
 
 Install Docker Engine, Docker Compose v2, and GNU Make. Allow enough memory and disk for the Airflow stack, ClickHouse, a monthly work table, and dbt table builds.
 
@@ -179,6 +201,10 @@ DBT_PROFILES_DIR=/opt/citibike/citibike_analytics
 
 BASEROW_API_TOKEN=REPLACE_WITH_PRIVATE_TOKEN
 BASEROW_TABLE_ID=REPLACE_WITH_NUMERIC_TABLE_ID
+
+# RAG: use the full URL and API key supplied by Qdrant Cloud.
+QDRANT_ENDPOINT=https://YOUR-CLUSTER.cloud.qdrant.io:6333
+QDRANT_API_KEY=REPLACE_WITH_PRIVATE_KEY
 ```
 
 `clickhouse` and `minio` are container-network hostnames. If running a Python command directly on the host, use the correct host-accessible addresses instead. Do not commit `.env`, real API tokens, passwords, or downloaded private Baserow ticket data.
@@ -371,6 +397,186 @@ For the **current row-level-only classification**, `staging_rows = validation_ro
 
 See [Analytics README](./citibike_analytics/README.md) for model lineage, test commands, and analytical queries.
 
+## RAG backend: ClickHouse, Ollama, Qdrant, and FastAPI
+
+The backend accepts a question at `POST /ask` and returns its answer in the **same HTTP response**. There is no custom RAG UI; `/docs` provides Swagger for backend testing. The RAG services have their own Compose file and Make targets; the root `make up` target does not start Ollama or the FastAPI process.
+
+### Implemented data and question flow
+
+1. [The extractor](./rag_system/ingestion/monthly_tripcount.py) reads `citibike.fct_trips`, groups `started_at` by month in **`America/New_York`**, and calculates `count()` per month. `fct_trips` includes rows classified as `VALID`; duration outliers remain included. Run the existing `trips_ride_id_unique` dbt test in your configured dbt runtime before trusting row counts as unique trip counts.
+2. The document builder creates **one summary document containing all available monthly rows**, with readable text and structured provenance. It does not currently create one point per month or embed individual trips.
+3. [The embedding job](./rag_system/ingestion/embed.py) sends that text to Ollama's `nomic-embed-text`, validates the vector, creates or checks the Qdrant collection, and upserts the document. It waits for completion, retrieves the point, and compares the stored payload before reporting success.
+4. [The question pipeline](./rag_system/retrieval/search.py) checks scope, uses `qwen2.5:1.5b` to produce a schema-constrained interpretation, and independently checks supported date syntax. It embeds the question with the same embedding model and queries Qdrant.
+5. Vector search supplies relevance scores for the nearest three points. A paginated scroll then gathers **all matching monthly evidence**, so a total or maximum is not calculated from an incomplete top-three subset. Only `source_table=citibike.fct_trips` and `metric=monthly_trip_count` records are considered.
+6. [The validation module](./rag_system/quardrails/validation.py) validates the structured rows and calculates an approved answer in Python. A second LLM call receives that approved text; its wording is accepted only if it matches exactly after trimming. Otherwise, the approved Python answer is returned.
+
+The directory is currently spelled `quardrails`; imports use that spelling.
+
+| Setting | Current implementation |
+| --- | --- |
+| Source / metric | `citibike.fct_trips` / `monthly_trip_count` |
+| Collection, case-sensitive | `citibike_monthly_tripCount` |
+| Embedding model | `nomic-embed-text` for documents and questions |
+| Interpretation / answer model | `qwen2.5:1.5b` |
+| Vector configuration | One unnamed vector, cosine distance; dimension comes from the actual embedding and is checked against the collection |
+| Summary point ID | `43b84bc7-2d1c-52cb-8a8e-b42f1ca5bc1b` |
+
+The payload includes `source_table`, `metric`, `document_key`, `schema_version`, `extraction_id`, `reporting_timezone`, `available_months`, `extracted_at_utc`, `rows`, `text`, `total_trips`, and `embedding_model`. Exact coverage comes from the monthly rows and `available_months`; the legacy `timeframe` year list does not imply complete years. Citation scores can be `null` for points outside the ranked results and are not confidence or freshness measurements.
+
+### Environment and startup
+
+Use the repository root as the working directory. On a fresh host checkout, create and activate a Python virtual environment:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+With the environment active, install the base and RAG dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install fastapi "uvicorn[standard]" "apscheduler>=3.11,<4" "pydantic>=2,<3" ollama qdrant-client
+```
+
+The root `requirements.txt` currently omits these additional RAG packages. The scheduler code uses APScheduler **3.x**, and the validation code uses Pydantic **2.x**.
+
+Configure `QDRANT_ENDPOINT` and `QDRANT_API_KEY` in the root `.env`, alongside the ClickHouse credentials. The extractor explicitly selects database `citibike`. For the documented host-run API, ClickHouse must be reachable through its published HTTP port. If the shared `.env` uses the Docker hostname `clickhouse`, override it in the host terminal without changing the container configuration:
+
+```bash
+export CLICKHOUSE_HOST=127.0.0.1
+```
+
+Use the actual published `CLICKHOUSE_HTTP_PORT` for your setup (default `8123`). Ollama is published at `http://127.0.0.1:11434`. The checked-in RAG Compose file does **not** launch a local Qdrant service; use the configured cloud endpoint.
+
+The Compose services join the external `citibike-network`. On a fresh setup, create it once if it does not already exist:
+
+```bash
+docker network create citibike-network
+```
+
+Start Ollama and download the required models during initial setup:
+
+```bash
+make ollama-up
+make ollama-init
+```
+
+`ollama-init` explicitly runs the `ollama-model-init` service, which has the `setup` profile and pulls both models. Model files persist in the `ollama_models` volume. `make ollama-setup` combines the startup and initialization targets. On subsequent starts, `make ollama-up` is sufficient when both models are already present; `make ollama-down` stops the RAG Compose services without deleting the model volume.
+
+Ensure the modeled `citibike.fct_trips` table exists and contains the intended months. To preview the extraction and document without writing to Qdrant:
+
+```bash
+python -m rag_system.ingestion.monthly_tripcount
+```
+
+For an initial upload or an intentional refresh, run:
+
+```bash
+python -m rag_system.ingestion.embed
+```
+
+**Skip that upload when the current document is already in Qdrant.** Running the preview or restarting FastAPI does not require another upload. The embedding command returns a completed summary with the collection, document ID, available months, month count, total trips, and vector dimension. It does not create an API job record.
+
+Start the API with **one worker**:
+
+```bash
+python -m uvicorn rag_system.api.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open [Swagger docs](http://localhost:8000/docs) or use an HTTP client. `--reload` is useful during development; file changes restart the process and clear its in-memory job history. The API starts its scheduler at startup but does not perform an immediate embedding refresh.
+
+### API endpoints and refresh jobs
+
+| Method | Path | Behavior |
+| --- | --- | --- |
+| `POST` | `/ask` | Accepts `{"question":"..."}`; returns `question`, `understood_query`, `answer`, and `sources` in the same response. Questions are trimmed and must contain 3–1000 characters. |
+| `POST` | `/embed/run` | No request body. Reserves a refresh and returns HTTP `202` with `status`, `job_id`, `status_url`, and `triggered_at`. Returns `409` if another refresh is queued or running. |
+| `GET` | `/embed/jobs/{job_id}` | Reads one job's state, timestamps, result, and error. It does not trigger an upload. Unknown/expired jobs return `404`; malformed UUIDs return `422`. |
+| `GET` | `/health` | Reports API liveness, scheduler state, next scheduled run, active job ID, and latest job. It does not probe ClickHouse, Ollama, or Qdrant. |
+
+Refreshes are scheduled for **00:00 and 12:00 UTC**, equivalent to **01:00 and 13:00 in Africa/Lagos**. Scheduled and API-triggered runs share an atomic reservation: at most one is queued/running in the API process. A scheduled trigger that encounters an active refresh is skipped rather than queued. APScheduler also uses `max_instances=1`, coalescing, and a one-hour misfire grace period while the process is running.
+
+To start a refresh when one is needed:
+
+```bash
+curl -X POST http://localhost:8000/embed/run
+```
+
+HTTP `202` means **accepted**, not completed. Copy the returned `job_id` into the Swagger parameter for `GET /embed/jobs/{job_id}`, or issue a GET to `http://localhost:8000` plus the returned `status_url`. The job moves through `queued` → `running` → `completed` or `failed`. Completed jobs expose ingestion statistics under `result`; failed jobs expose a generic `error`, with the traceback in the API terminal.
+
+To inspect an existing job without starting a refresh, call `GET /health` and use `embedding.latest_job.job_id` or `embedding.active_job_id`. A `null` latest job means no refresh has been recorded since this API process started. Direct CLI uploads are not tracked by this manager.
+
+The `job_id` changes for every execution; the Qdrant `document_id` identifies the summary and remains stable. The latest **100** job records are held in memory and disappear on restart. Scheduling only runs while the API process is alive; it does not replay all runs missed while the process was stopped. Multiple workers/replicas or direct CLI refreshes are not coordinated by the process-local reservation.
+
+### Idempotent refresh and warehouse coverage
+
+The fixed summary ID preserves the UUID originally generated by `uuid5(NAMESPACE_URL, original_sql)`. Reusing it updates the same point's vector and payload even when the extraction SQL is reformatted. `uuid5` is deterministic; tying it to SQL text would create a different ID whenever that text changes. The logical key is `citibike:monthly_trip_count:all_loaded_months:v1`; deriving a new UUID from that key would require deliberately migrating the existing point.
+
+Each refresh extracts once and builds/embeds that same snapshot. Empty or invalid extractions fail before an upsert. An incompatible existing collection is reported rather than deleted/recreated. Refreshes do not automatically remove legacy points created under other IDs; conflicting monthly counts across retrieved points cause refusal. A failed readback after an upsert does not guarantee that the write was rolled back.
+
+Only the loaded/indexed months are available. April and September 2026 do not imply that May–August are present or have zero trips. An unqualified total/maximum is scoped to the indexed months and names them in the answer. An explicitly requested range, quarter, or whole year requires **every requested month**; missing months cause refusal. `extracted_at_utc` records extraction time, not proof that upstream dbt models are fresh.
+
+### Supported questions and guardrails
+
+| Operation | Example |
+| --- | --- |
+| List | `List the monthly trip counts.` |
+| Maximum / minimum, including ties | `Which month had the most Citibike trips?` / `Which month had the fewest trips?` |
+| Total across indexed months | `How many trips are recorded across all months?` |
+| Compare two explicit months | `Compare trip counts for 2026-04 and 2026-09.` |
+
+Supported explicit dates include `YYYY-MM`, named English months with one shared explicit year, `Q3 2026`, whole years, and inclusive month ranges of up to 120 months. Coverage is checked in every case. Relative dates, ambiguous/mixed date syntax, percentages, daily/hourly breakdowns, weather, recipes, station/membership/duration analysis, and explanations of causes are outside this corpus. The broader warehouse may contain other metrics, but this RAG path does not index them.
+
+The guardrails use strict schema validation, exact source/metric checks, valid nonnegative integer counts, conflict detection, complete requested-month coverage, and deterministic calculations. The final answer cannot add arbitrary model wording because it must match the approved answer. These controls constrain supported responses; question interpretation still depends on the LLM, and warehouse correctness/freshness must be checked separately. Temperature zero or a prompt alone is not a universal guarantee against incorrect interpretation.
+
+Test a supported request:
+
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Which month had the most Citibike trips?"}'
+```
+
+Expect HTTP `200` with a warehouse-derived answer and source citations. `understood_query` is a readable interpretation string. Compare the reported values with the extraction preview or a direct query against `fct_trips`, rather than assuming the Bronze release counts are identical to the modeled counts.
+
+Test the required out-of-scope request:
+
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"tell me the recipe of chocolate pancake"}'
+```
+
+Expected HTTP `200` response:
+
+```json
+{
+  "question": "tell me the recipe of chocolate pancake",
+  "understood_query": "No supported interpretation approved.",
+  "answer": "I don't have enough warehouse data to answer that.",
+  "sources": []
+}
+```
+
+The preliminary recipe/weather checks refuse these questions before service calls. Other unsupported interpretations, missing evidence, conflicting counts, or incomplete requested coverage also return the standard refusal. Infrastructure failures instead return HTTP `500` and are logged; they are not presented as successful answers.
+
+### RAG troubleshooting
+
+| Symptom | Check / action |
+| --- | --- |
+| `ModuleNotFoundError` or app import failure | Activate the intended virtual environment, install the additional RAG dependencies, run from the repository root, and use `rag_system.api.main:app`. |
+| Ollama connection/model error | Run `make ollama-up`; use `make ollama-init` if either model is missing. Check `docker compose -f rag_system/docker-compose.yaml logs ollama`. |
+| ClickHouse connection failure | Check host-versus-container addressing, published HTTP port, credentials, and existence of `citibike.fct_trips`. |
+| Qdrant connection, authentication, or missing-collection error | Check the full `QDRANT_ENDPOINT`, API key, connectivity, and exact collection name. Provision with the embedding job only if the collection/document is absent or a refresh is intended. |
+| Vector dimension/distance mismatch | Keep the same embedding model/configuration for ingestion and retrieval. An intentional model change requires a compatible collection and re-embedding; the job does not destroy an incompatible collection. |
+| HTTP `500` from `/ask`, or a failed refresh job | Read the API terminal traceback. The response deliberately omits internal exception details. |
+| HTTP `409` from `/embed/run` | Inspect the active job through `/health` and its status endpoint; allow it to finish. |
+| HTTP `404` from `/embed/jobs/{job_id}` | Use a current API job ID, not the document ID. CLI uploads have no API job record; restart/retention may have removed the record. |
+| HTTP `422` | Check the request body/question length or provide a valid UUID for the job path parameter. |
+| Refusal for a trip question | Check supported operation/date syntax, actual month coverage, payload source/metric, strict row types, and conflicting legacy points. |
+| HTTP `404` at `/` or `405` for `GET /ask` | There is no root route; use `/docs` or `/health`, and send a **POST** to `/ask`. |
+
 ## Operational checks
 
 - **Airflow monthly DAG:** `citibike_monthly_batch` (manual, release-month parameter); its workload uses the `citibike_warehouse` pool and a single active DAG run.
@@ -378,15 +584,8 @@ See [Analytics README](./citibike_analytics/README.md) for model lineage, test c
 - **NiFi polling:** runs independently of the batch DAGs. Query-time station freshness should be assessed independently of historical trip availability.
 - **ClickHouse:** inspect batch partitions, quarantine records, Baserow completion markers, and current station availability after a run.
 - **dbt:** run `dbt build` or a targeted `dbt build --select model+` with the correct project/profile. The containerized worker provides the pinned CLI.
-
-## Known limitations and next steps
-
-1. **Full trip-contract enforcement:** row-level rejection/quarantine exists, but scalable duplicate resolution, automated reconciliation tests, and synthetic error-injection tests still need completion.
-2. **Historical station and region attributes:** the current latest-only dimensions are appropriate for current-state dashboards but do not establish attributes as of April/September trip times. A separate observed-history/SCD Type 2 dimension and time-aware joins are planned. Historic information cannot be recovered for dates before metadata collection began.
-3. **Rebalancing priority:** a heuristic for operational triage, not a forecast or dispatch optimization. It depends on current station-status freshness and an explicitly chosen (currently latest available) historical demand baseline.
-4. **Baserow extraction semantics:** the API is polled for complete ticket snapshots; it is not CDC. The completion marker gates incomplete runs, but extraction publication spans separate ClickHouse inserts and is not a database-wide transaction.
-5. **Dashboard:** not yet implemented. Intended consumers include latest station availability, rebalancing recommendations, trip-demand trends, and maintenance ticket aggregates.
-6. **Security and reproducibility:** keep `.env`/tokens outside source control; ensure the current `Makefile` and Airflow DAG reflect the newer schema/backfill code before publishing this README. The older shared ZIP predates several validated changes.
+- **RAG answers:** compare a supported `/ask` result with the modeled monthly counts and verify the pancake request returns the standard refusal with no sources.
+- **RAG refreshes:** inspect `/health` for scheduler/next-run state and `/embed/jobs/{job_id}` for actual completion. Health alone does not establish dependency connectivity or data freshness.
 
 ## Metadata and source contracts
 
