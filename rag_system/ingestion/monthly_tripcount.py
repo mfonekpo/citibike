@@ -1,82 +1,238 @@
-from uuid import NAMESPACE_URL, uuid5
-from dotenv import load_dotenv
-from utils.dwh_connect import get_clickhouse_client
-from datetime import datetime
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
-load_dotenv()
+from dotenv import load_dotenv
+
+from rag_system.quardrails.validation import (
+    METRIC,
+    SOURCE_TABLE,
+    MonthlyTripCount,
+)
+from utils.dwh_connect import get_clickhouse_client
 
 
-def generate_monthly_tripcount()-> list[dict]:
-    clickhouse_client = get_clickhouse_client("citibike")
-    MONTHLY_TRIPCOUNT_QUERY = """
-        SELECT
-            formatDateTime(
-                started_at, '%Y-%m', 'America/New_York'
-            ) AS month,
-            count() AS trip_count
-        FROM fct_trips
-        GROUP BY month
-        ORDER BY month;
-    """
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
 
-    result = clickhouse_client.query(MONTHLY_TRIPCOUNT_QUERY)
+REPORTING_TIMEZONE = "America/New_York"
+DOCUMENT_KEY = "citibike:monthly_trip_count:all_loaded_months:v1"
 
-    rows = list(result.named_results())
+# Preserve the UUID produced by existing extractor.
+DOCUMENT_ID = "43b84bc7-2d1c-52cb-8a8e-b42f1ca5bc1b"
+
+MONTHLY_TRIPCOUNT_QUERY = """
+SELECT
+    formatDateTime(
+        started_at, '%Y-%m', 'America/New_York'
+    ) AS month,
+    count() AS trip_count
+FROM fct_trips
+GROUP BY month
+ORDER BY month
+"""
+
+
+def _validate_rows(
+    rows: Any,
+) -> list[dict[str, Any]]:
+    """Validate and sort one row per available month."""
+
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(
+            "No monthly trip-count rows were returned from ClickHouse."
+        )
+
+    checked = [
+        MonthlyTripCount.model_validate(row).model_dump()
+        for row in rows
+    ]
+
+    months = [
+        row["month"]
+        for row in checked
+    ]
+
+    if len(months) != len(set(months)):
+        raise ValueError(
+            "The extraction contains duplicate months."
+        )
+
+    return sorted(
+        checked,
+        key=lambda row: row["month"],
+    )
+
+
+def _make_metadata(
+    rows: list[dict[str, Any]],
+    extracted_at_utc: str,
+) -> dict[str, Any]:
+    """Describe the validated snapshot and its coverage."""
+
+    months = [
+        row["month"]
+        for row in rows
+    ]
+
     return {
-       "rows": rows,
-       "extraction_metadata": {
-           "source_table": "citibike.fct_trips",
-           "extraction_id": str(uuid5(NAMESPACE_URL, MONTHLY_TRIPCOUNT_QUERY)),
-           "metric": "monthly_trip_count",
-           "timeframe": sorted({row["month"][:4] for row in rows}),
-       }
+        "source_table": SOURCE_TABLE,
+        "metric": METRIC,
+        "extraction_id": DOCUMENT_ID,
+        "document_key": DOCUMENT_KEY,
+        "schema_version": 1,
+        "reporting_timezone": REPORTING_TIMEZONE,
+        "available_months": months,
+
+        # Retained for compatibility.
+        # Use available_months when checking coverage.
+        "timeframe": sorted({
+            month[:4]
+            for month in months
+        }),
+
+        "extracted_at_utc": extracted_at_utc,
+    }
+
+
+def generate_monthly_tripcount() -> dict[str, Any]:
+    """Read one snapshot and always close its ClickHouse client."""
+
+    client = get_clickhouse_client("citibike")
+
+    try:
+        result = client.query(MONTHLY_TRIPCOUNT_QUERY)
+        raw_rows = list(result.named_results())
+
+    finally:
+        client.close()
+
+    rows = _validate_rows(raw_rows)
+
+    extracted_at_utc = datetime.now(
+        timezone.utc
+    ).isoformat()
+
+    return {
+        "rows": rows,
+        "extraction_metadata": _make_metadata(
+            rows,
+            extracted_at_utc,
+        ),
     }
 
 
 def format_month(ym_str: str) -> str:
-  # Converts '2026-04' -> 'April 2026 (2026-04)'
-  dt = datetime.strptime(ym_str, "%Y-%m")
-  return f"{dt.strftime('%B %Y')} ({ym_str})"
+    """Convert 2026-04 to April 2026 (2026-04)."""
+
+    value = datetime.strptime(
+        ym_str,
+        "%Y-%m",
+    )
+
+    return f"{value.strftime('%B %Y')} ({ym_str})"
 
 
-def build_rag_document(data: list[dict[str, Any]]) -> dict[str, Any]:
+def build_rag_document(
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a document using only the supplied extraction."""
 
-    rows = data["rows"]
-    metadata = data["extraction_metadata"]
-    if not rows:
-        return "No monthly trip count data available for Citibike."
+    if not isinstance(data, dict):
+        raise ValueError(
+            "The extraction must be a dictionary."
+        )
 
-    total_trips = sum(row["trip_count"] for row in rows)
-    start_month = format_month(rows[0]["month"])
-    end_month = format_month(rows[-1]["month"])
+    rows = _validate_rows(data.get("rows"))
+    metadata = data.get("extraction_metadata")
 
-    lines = [
-        f"- {format_month(row['month'])}: {row['trip_count']:,} total trips"
+    if (
+        not isinstance(metadata, dict)
+        or metadata.get("source_table") != SOURCE_TABLE
+        or metadata.get("metric") != METRIC
+        or metadata.get("extraction_id") != DOCUMENT_ID
+    ):
+        raise ValueError(
+            "The extraction metadata is incompatible."
+        )
+
+    extracted_at_utc = metadata.get(
+        "extracted_at_utc"
+    )
+
+    if not isinstance(extracted_at_utc, str):
+        raise ValueError(
+            "The extraction timestamp is missing."
+        )
+
+    extracted_at = datetime.fromisoformat(
+        extracted_at_utc
+    )
+
+    if extracted_at.utcoffset() != timedelta(0):
+        raise ValueError(
+            "The extraction timestamp must include UTC."
+        )
+
+    # Recompute coverage from validated rows.
+    metadata = _make_metadata(
+        rows,
+        extracted_at_utc,
+    )
+
+    total_trips = sum(
+        row["trip_count"]
         for row in rows
-    ]
+    )
+
+    labels = ", ".join(
+        format_month(row["month"])
+        for row in rows
+    )
+
+    breakdown = "\n".join(
+        f"- {format_month(row['month'])}: "
+        f"{row['trip_count']:,} total trips"
+        for row in rows
+    )
 
     text = (
-    "Citibike Monthly Trip Count Summary\n"
-        f"Overview: Between {start_month} and {end_month}, Citibike recorded a "
-        f"combined total of {total_trips:,} trips.\n\n"
-        "Monthly Breakdown:\n" + "\n".join(lines)
+        "Citi Bike Monthly Trip Count Summary\n"
+        f"Reporting timezone: {REPORTING_TIMEZONE}.\n"
+        f"Available months: {labels}.\n"
+        "Total trips across these available months: "
+        f"{total_trips:,}.\n"
+        "Only the listed months are represented "
+        "in this summary.\n\n"
+        f"Monthly Breakdown:\n{breakdown}"
     )
+
     return {
-        "document_id": metadata["extraction_id"],
+        "document_id": DOCUMENT_ID,
         "payload": {
+            **metadata,
             "text": text,
             "rows": rows,
-            **metadata,
-        }
+            "total_trips": total_trips,
+        },
     }
 
 
-# def main():
-#    data = generate_monthly_tripcount()
-#    document = build_rag_document(data)
-#    print(document["payload"]["text"])
+def main() -> None:
+    """Preview the document without calling Ollama or Qdrant."""
+
+    data = generate_monthly_tripcount()
+    document = build_rag_document(data)
+
+    print(
+        json.dumps(
+            document,
+            indent=2,
+            allow_nan=False,
+        )
+    )
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()
