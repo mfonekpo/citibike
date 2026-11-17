@@ -57,7 +57,7 @@ flowchart LR
 
 ### Project diagrams
 
-![ELT architecture](./images/citibike_ELT_diagram.svg)
+![ELT architecture](./images/citibike_ERD.svg)
 
 ![NiFi process groups](./images/Nifi_process_group.png)
 
@@ -69,7 +69,8 @@ flowchart LR
 
 ![Bronze entity relationships](./images/ERD_Bronze.svg)
 
-> The linked diagrams are preserved from the original README; some may not yet show the newly added Baserow, multi-month backfill, or validation branches. The Mermaid diagram above describes the current intended flow more completely.
+![RAG system](./images/Citibike%20RAG%20System%20Architecture.svg)
+
 
 ## Data sources
 
