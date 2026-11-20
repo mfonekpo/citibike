@@ -2,9 +2,8 @@
 
 A local, containerized **ELT data engineering project** combining historical Citi Bike trip files, near-real-time GBFS station feeds, and operational maintenance tickets from Baserow. The platform uses **MinIO, Apache Airflow, Apache NiFi, ClickHouse, Python, and dbt** to ingest, validate, model, and serve analytical data. A **FastAPI RAG backend** uses **Ollama and Qdrant** to answer monthly trip-count questions from the modeled warehouse data.
 
-The pipeline supports month-selectable historical backfills, repeatable monthly publication, row-level trip validation and quarantine, current station availability, rebalancing signals, and maintenance workload metrics. A dashboard is a planned consumer of the curated models; it is not included in this repository.
+The pipeline supports month-selectable historical backfills, repeatable monthly publication, row-level trip validation and quarantine, current station availability, rebalancing signals, and maintenance workload metrics.
 
-> **Implementation status (November 2026):** April 2026 and September 2026 trip releases have been loaded and successfully reprocessed without duplicating Bronze rows. Multi-month demand baselines and the row-level trip validation/quarantine path have been built and checked. Efficient cross-row duplicate resolution, automated quarantine reconciliation tests, synthetic rejection tests, and full SCD Type 2 as-of trip joins remain follow-up work; see [Known limitations](#known-limitations-and-next-steps).
 
 The RAG implementation includes structured warehouse extraction, embedding/upsert verification, guarded question answering, twice-daily refresh scheduling, and on-demand refresh job tracking. Its current knowledge scope is **monthly trip counts from `citibike.fct_trips`**; it does not expose every warehouse model or provide a custom frontend.
 
